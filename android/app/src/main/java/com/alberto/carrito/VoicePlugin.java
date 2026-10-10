@@ -3,6 +3,7 @@ package com.alberto.carrito;
 import android.Manifest;
 import android.content.Intent;
 import android.os.Bundle;
+import android.os.SystemClock;
 import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
@@ -25,13 +26,17 @@ import java.util.ArrayList;
  * porque el sistema aún está desconectando el servicio del anterior («Service is unbinding»).
  *
  * listen() resuelve con { matches: [...] } (la más probable primero) o se rechaza con código
- * "permission", "nomatch", "network" o "failed".
+ * "permission", "nomatch", "network" o "failed". Mientras escucha emite los eventos "partial" { text }
+ * (lo entendido hasta ahora) y "level" { level } (volumen en dB, unas 12 veces por segundo).
  */
 @CapacitorPlugin(name = "Voice", permissions = { @Permission(strings = { Manifest.permission.RECORD_AUDIO }, alias = "microphone") })
 public class VoicePlugin extends Plugin {
 
+    private static final long LEVEL_INTERVAL_MS = 80;
+
     private SpeechRecognizer recognizer;
     private PluginCall pending; // escucha en curso; solo se toca desde el hilo principal
+    private long lastLevelAt;
 
     @PluginMethod
     public void available(PluginCall call) {
@@ -76,6 +81,7 @@ public class VoicePlugin extends Plugin {
             intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
             intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, language);
             intent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5);
+            intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
             intent.putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, getContext().getPackageName());
             pending = call;
             recognizer.startListening(intent);
@@ -136,8 +142,16 @@ public class VoicePlugin extends Plugin {
         @Override
         public void onBeginningOfSpeech() {}
 
+        // Volumen para animar la interfaz; se limita la frecuencia para no saturar el puente con JS
         @Override
-        public void onRmsChanged(float rmsdB) {}
+        public void onRmsChanged(float rmsdB) {
+            long now = SystemClock.uptimeMillis();
+            if (pending == null || now - lastLevelAt < LEVEL_INTERVAL_MS) return;
+            lastLevelAt = now;
+            JSObject ret = new JSObject();
+            ret.put("level", rmsdB);
+            notifyListeners("level", ret);
+        }
 
         @Override
         public void onBufferReceived(byte[] buffer) {}
@@ -146,7 +160,14 @@ public class VoicePlugin extends Plugin {
         public void onEndOfSpeech() {}
 
         @Override
-        public void onPartialResults(Bundle partialResults) {}
+        public void onPartialResults(Bundle partialResults) {
+            if (pending == null) return;
+            ArrayList<String> partial = partialResults.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+            if (partial == null || partial.isEmpty() || partial.get(0).trim().isEmpty()) return;
+            JSObject ret = new JSObject();
+            ret.put("text", partial.get(0));
+            notifyListeners("partial", ret);
+        }
 
         @Override
         public void onEvent(int eventType, Bundle params) {}
