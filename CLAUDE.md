@@ -18,7 +18,7 @@ La app se llamaba «Carrito» y pasó a llamarse **ToBuy** (oct. 2026). Solo cam
 ## Estructura
 ```
 index.html               entrada Vite (viewport-fit=cover para notch/safe areas)
-vite.config.js           base: './'  ← obligatorio para que funcione en el WebView de Capacitor
+vite.config.js           base: './'  ← obligatorio para que funcione en el WebView de Capacitor; proxy /off (fotos en dev)
 capacitor.config.json    appId com.alberto.carrito, appName ToBuy, webDir dist, config de StatusBar
 .claude/launch.json      servidor de desarrollo para las vistas previas de Claude Code (puerto 5181)
 src/main.jsx             monta <App/>
@@ -26,7 +26,8 @@ src/App.jsx              App (estado global y escucha de voz) + HomeScreen/Store
                          + VoiceButton/VoiceOverlay + Sheet (hoja inferior) + StoreMark/StoreLogo (logos)
 src/brands.js            logos de súper conocidos (BRANDS) y brandOf(nombre)
 src/assets/stores/       logotipos (SVG/PNG) que usa brands.js
-src/storage.js           loadState/saveState en localStorage (clave 'lista-compra-v1'), uid(), supermercados por defecto
+src/storage.js           loadState/saveState en localStorage (clave 'lista-compra-v2'), uid(), supermercados por defecto
+src/photos.js            fotos de productos: searchPhotos(nombre) (Wikipedia + Open Food Facts) y makeThumb(url|fichero)
 src/voice.js             reconocimiento de voz: voiceAvailable(), listen({ onPartial, onLevel }), stopListening()
 src/parseVoice.js        parseVoice(alternativas, stores) → { name, qty, storeId|null } (función pura); exporta norm()
 src/App.css              estilos
@@ -55,11 +56,13 @@ assets/icon-only.svg     diseño del icono (carrito blanco sobre #1f7a4d)
 state = {
   stores: [{ id, name, color }],                         // por defecto: Mercadona, Lidl, Carrefour (azul #004e9f), Dia
   items:  [{ id, name, qty, storeId, done, createdAt }]   // qty es texto libre ("2", "1 kg"...)
+  photos: { [norm(nombre)]: 'data:image/jpeg;base64,…' }  // foto por nombre de producto (ver «Fotos de productos»)
 }
 ```
 - Todo el estado vive en `App` y se persiste con un `useEffect` en cada cambio.
 - Borrar un supermercado borra también sus productos (con `confirm`).
-- Si se cambia la forma del estado, **subir la versión de la clave** (`lista-compra-v2`) y migrar los datos antiguos en `loadState`, para no perder la lista del usuario.
+- Si se cambia la forma del estado, **subir la versión de la clave** (la siguiente sería `lista-compra-v3`) y migrar los datos antiguos en `loadState`, para no perder la lista del usuario. La v2 (oct. 2026) añadió `photos`: si no hay datos v2 se leen los de `lista-compra-v1` (que se dejan sin tocar).
+- `saveState` devuelve `false` si no se pudo guardar (p. ej. sin espacio por las fotos) y `App` lo avisa con un toast.
 - Si solo cambia un **valor** guardado (no la forma), se migra en `migrateStores` (`storage.js`) sin subir la clave; debe ser idempotente porque se ejecuta en cada arranque. Ejemplo actual: un súper Carrefour (por id `carrefour` o por nombre) que siga con el rojo antiguo exacto `#c8102e` pasa a `#004e9f`; si tiene otro color, o es otro súper con ese rojo, no se toca.
 
 ## Navegación
@@ -70,7 +73,9 @@ No hay router. `currentStoreId` decide la pantalla (`null` = inicio). Abrir un s
 Lo que se abre **encima** de una pantalla (hojas inferiores, pantalla de escucha) no usa el historial: se apunta con `useBackHandler(abierto, cerrar)` en la pila `backHandlers`, y el listener de `backButton` ejecuta primero el último de la pila. Así atrás cierra la hoja o cancela la escucha sin cambiar de pantalla, y no hay carreras entre `history.back()` y `pushState`. En el navegador, Escape cierra las hojas; atrás del navegador cambia de pantalla (y cancela la escucha en `popstate`).
 
 ## Barra de estado (Android)
-Configurada en `capacitor.config.json` → `plugins.StatusBar`: `style: "DARK"` (hora e iconos **en blanco**, porque todas las cabeceras tienen fondo de color y texto blanco) y `overlaysWebView: true` (la cabecera se dibuja detrás de la barra; su `padding-top` usa `env(safe-area-inset-top)`). El plugin lo aplica en nativo al arrancar y lo reaplica si cambia el tema del sistema, así que no hay código JS. Si alguna pantalla tuviera cabecera clara, habría que llamar a `StatusBar.setStyle({ style: Style.Light })` al entrar en ella y restaurar `Style.Dark` al salir.
+Configurada en `capacitor.config.json` → `plugins.StatusBar`: `style: "DARK"` (hora e iconos **en blanco**) y `overlaysWebView: true` (la página se dibuja detrás de la barra; las cabeceras usan `env(safe-area-inset-top)` en su `padding-top`).
+- La cabecera del inicio (oct. 2026) **no tiene color**: va sobre el fondo de la página. Por eso `App` llama a `StatusBar.setStyle`: `Style.Default` en el inicio (el plugin elige según el tema del sistema: iconos oscuros en claro, blancos en oscuro, y lo reaplica si cambia el tema) y `Style.Dark` en un súper o con la pantalla de escucha abierta (fondos de color). Solo en nativo (`Capacitor.isNativePlatform()`).
+- La cabecera del inicio no es fija (`sticky`): `.status-scrim` es una franja fija del color del fondo detrás de la barra de estado, para que la lista no se vea pasar por debajo de la hora.
 
 ## Dictado por voz
 - **Motor en Android**: plugin nativo propio `VoicePlugin.java` (`registerPlugin('Voice')` en `voice.js`; se registra en `MainActivity` antes de `super.onCreate`). Usa el `SpeechRecognizer` del sistema (normalmente el de Google; el WebView no trae la Web Speech API), idioma `es-ES`, 5 alternativas, sin diálogo de Google (la interfaz es la pantalla de escucha propia). Métodos: `available()`, `listen({ language })` → `{ matches }` o rechazo con `code` `permission`/`nomatch`/`network`/`failed` (pide el permiso `RECORD_AUDIO` si hace falta), `stop()`. Mientras escucha emite los eventos `partial` `{ text }` (resultados parciales, `EXTRA_PARTIAL_RESULTS`) y `level` `{ level }` (rmsdB, como mucho cada 80 ms); `voice.js` se suscribe solo durante la escucha y los traduce a `onPartial(texto)` y `onLevel(0..1)`. El manifiesto declara `RECORD_AUDIO` y la `<queries>` de `RecognitionService` (necesaria en Android 11+).
@@ -82,9 +87,17 @@ Configurada en `capacitor.config.json` → `plugins.StatusBar`: `style: "DARK"` 
 - Para probarlo en la vista previa sin micrófono, se puede sustituir `webkitSpeechRecognition.prototype.start`/`stop` por unos que guarden la instancia y llamar a mano a su `onresult` (con `isFinal` false para el texto parcial) y `onend`.
 - Probado (oct. 2026): interpretación de frases y flujo completo en el navegador simulando el reconocedor (parciales, final, terminar, cancelar, resultado tardío tras cancelar); en el emulador (API 37), permiso (denegar y conceder), escucha repetida, parar a mano, aviso sin voz, llegada de los eventos `level` y atrás con la escucha abierta. **Falta probar el reconocimiento de una frase real en un móvil** (y ver los parciales y el halo con voz de verdad): el emulador se arrancó sin `-allow-host-audio` (micrófono en silencio).
 
+## Fotos de productos
+- Cada producto de la lista de un súper lleva a la izquierda su foto (o un hueco con una cámara). Tocarlo abre `PhotoSheet`: la foto actual en grande y «Quitar foto», «Hacer foto» (`<input type="file" capture="environment">`), «Galería» (`<input type="file">`) y una cuadrícula «De internet».
+- **La foto va por nombre** (`state.photos[norm(nombre)]`, `norm` de `parseVoice.js`), no por producto: un producto habitual sale con su foto cada vez que se vuelve a apuntar, en cualquier súper y aunque se haya borrado.
+- **Búsqueda** (`photos.js`, solo al abrir la hoja): Wikipedia en español (fotos genéricas: fruta, pan…; se quedan solo artículos cuyo título empieza como el producto y sin paréntesis, como mucho 4) y Open Food Facts (`search.openfoodfacts.org`, productos de España con foto: Hacendado, Dia…, 12). Open Food Facts no manda cabeceras CORS: en Android se pide con `CapacitorHttp` (nativo, va en `@capacitor/core`) y en `npm run dev` por el proxy `/off` de `vite.config.js`. Si las dos fallan, la hoja dice «Sin conexión». Se manda el nombre del producto a esos servicios (nada más).
+- **Se guarda una miniatura** JPEG (lado mayor 240 px, calidad 0,75; ~10–40 KB) en data URL, para verla sin conexión en el súper. Si una foto de internet no se deja copiar al canvas (CORS), se guarda su URL. localStorage tiene un límite de unos MB: con cientos de fotos podría llenarse (se avisa).
+- **Cámara en Android**: Capacitor (`BridgeWebChromeClient`) abre la cámara con `ACTION_IMAGE_CAPTURE` solo si la ve; en Android 11+ eso exige la `<queries>` de `android.media.action.IMAGE_CAPTURE` en el manifiesto (sin ella abre la galería). No hace falta el permiso `CAMERA` (no está declarado; si se declarase, Capacitor lo pediría).
+- El botón de la foto está **dentro** del `<label>` del producto: al ser contenido interactivo, tocarlo no marca la casilla.
+
 ## Funcionalidad actual
-- Inicio: total de pendientes en la cabecera; añadido rápido (nombre + cantidad; al escribir aparecen los chips de súper con su logo y el botón «Añadir a X», que toma el color del súper elegido, y el foco vuelve al campo para seguir añadiendo); tarjetas de supermercados en dos columnas (logo sobre blanco arriba y, sobre el color del súper, pendientes, productos y barra de progreso); «Añadir súper» abre una hoja con el nombre (vista previa del símbolo) y las marcas conocidas que aún no están.
-- Supermercado: cabecera con el color del súper y su logo en una placa blanca, barra de progreso («X de Y en el carro»), añadir producto, marcar/desmarcar (casilla redonda propia; sección «En el carro»), mover a otro súper (hoja con los demás súper y sus logos), borrar producto, quitar los comprados, borrar supermercado.
+- Inicio: cabecera sobre el fondo (sin barra de color): fila pequeña con el icono y «ToBuy» y la fecha, y en grande «N cosas por comprar» (número en verde) con los súper donde hay algo pendiente debajo, o «Nada pendiente»; añadido rápido (nombre + cantidad; al escribir aparecen los chips de súper con su logo y el botón «Añadir a X», que toma el color del súper elegido, y el foco vuelve al campo para seguir añadiendo); tarjetas de supermercados en dos columnas (logo sobre blanco arriba y, sobre el color del súper, pendientes, productos y barra de progreso); «Añadir súper» abre una hoja con el nombre (vista previa del símbolo) y las marcas conocidas que aún no están.
+- Supermercado: cabecera con el color del súper y su logo en una placa blanca, barra de progreso («X de Y en el carro»), añadir producto, marcar/desmarcar (casilla redonda propia; sección «En el carro»), foto de cada producto (ver «Fotos de productos»), mover a otro súper (hoja con los demás súper y sus logos), borrar producto, quitar los comprados, borrar supermercado.
 - Avisos (toast) abajo, gestionados en `App`, con el logo del súper cuando viene al caso: al añadir desde el inicio o por voz (con **Deshacer**), al mover y al borrar. Borrar un producto y «Quitar de la lista» ofrecen **Deshacer** (~4,5 s): los productos vuelven ordenados por `createdAt`.
 - Voz: botón grande abajo y pantalla de escucha. Ver «Dictado por voz».
 - Hojas inferiores (`Sheet`): se cierran tocando fuera, con la X, con Escape o con atrás. Su fondo se oscurece animando el color, no la opacidad (si no, la hoja dejaría ver el botón de voz mientras sube). `.screen` solo anima la opacidad al entrar: un `transform` haría que los elementos fijos de dentro se colocaran respecto a la pantalla y no a la ventana.
@@ -104,6 +117,7 @@ Compilar el APK desde terminal (sin Android Studio): `cd android && ./gradlew as
 
 ## Estado / pendiente
 - Verificado (oct. 2026): `npm install` y `npm run build` sin errores; probado en navegador a 380 px (añadido rápido, pantalla de súper, mover/borrar/vaciar, borrar súper, persistencia, modo claro/oscuro); `./gradlew assembleDebug` compila; probado en emulador Android (API 37): carga, safe areas y botón atrás (súper → inicio → cierra la app), barra de estado blanca en inicio y súper con el sistema en claro y en oscuro. Migración de Carrefour probada en navegador (datos antiguos, color personalizado, súper añadido a mano, instalación nueva). Rediseño con logos (oct. 2026) probado en navegador a 390 px en claro y oscuro (tarjetas, chips, hojas de mover y de nuevo súper, sugerencias, súper sin logo, voz simulada) y en el emulador: tarjetas y cabecera con logo, pantalla de escucha, hoja con el teclado abierto (el WebView se redimensiona y la hoja sube por encima del teclado) y atrás con hoja/escucha abiertas, en un súper y en el inicio.
+- Cabecera nueva del inicio y fotos (oct. 2026): probado en navegador a 390 px en claro y oscuro (búsqueda con resultados de las dos fuentes, elegir foto, galería con un fichero simulado, quitar foto, foto que reaparece al volver a apuntar el producto, migración de v1 a v2) y en el emulador (API 37): barra de estado oscura en el inicio claro y blanca en el súper, resultados de Open Food Facts vía `CapacitorHttp`, la foto elegida se ve sin conexión tras reiniciar la app, aviso «Sin conexión» en la hoja, y «Hacer foto» con la cámara del emulador. Sin probar: el inicio en modo oscuro en el móvil (barra de estado con `Style.Default`) y fotos de cámara reales (tamaño grande).
 - **Sin probar en Android ≤14** (solo hay imagen de API 37). Allí la cabecera detrás de la barra depende de que el WebView del sistema esté actualizado (≥140) para que `env(safe-area-inset-top)` funcione; si el título quedara bajo la barra, esa es la causa.
 - Emulador sin ventana: `emulator -avd Medium_Phone_API_37.0 -no-window -no-snapshot-save`. Si hay un móvil conectado por USB, usar siempre `adb -s emulator-5554` para no instalar nada en él por error.
 - Ideas posibles (no pedidas aún): reordenar productos, sugerencias de productos ya usados, editar nombre/color de un súper, `@capacitor/preferences` en lugar de localStorage, splash propio para Android ≤ 11, compartir la lista.
