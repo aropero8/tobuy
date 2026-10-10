@@ -44,5 +44,9 @@
         <intent>
             <action android:name="android.speech.RecognitionService" />
         </intent>
+        <!-- «Hacer foto» de un producto: sin esto, en Android 11+ Capacitor no ve la cámara y abre la galería -->
+        <intent>
+            <action android:name="android.media.action.IMAGE_CAPTURE" />
+        </intent>
     </queries>
 </manifest>

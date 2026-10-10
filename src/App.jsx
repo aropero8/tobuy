@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
+import { Capacitor } from '@capacitor/core';
 import { App as CapacitorApp } from '@capacitor/app';
+import { StatusBar, Style } from '@capacitor/status-bar';
 import { loadState, saveState, uid } from './storage.js';
-import { parseVoice } from './parseVoice.js';
+import { norm, parseVoice } from './parseVoice.js';
+import { makeThumb, searchPhotos } from './photos.js';
 import { listen, stopListening, voiceAvailable } from './voice.js';
 import { BRANDS, brandOf } from './brands.js';
 
@@ -37,7 +40,10 @@ export default function App() {
   const session = useRef(null); // escucha en curso: { stopped, gone }
   const overlayRef = useRef(null);
 
-  useEffect(() => saveState(state), [state]);
+  // Si no cabe (las fotos ocupan), se avisa: lo último no quedaría guardado
+  useEffect(() => {
+    if (!saveState(state)) showToast('No queda espacio en el móvil: quita alguna foto');
+  }, [state]);
 
   useEffect(() => {
     let alive = true;
@@ -193,9 +199,25 @@ export default function App() {
     setState((s) => ({ ...s, stores: [...s.stores, { id: uid(), name: name.trim(), color: colorFor(name, s.stores) }] }));
 
   const deleteStore = (id) =>
-    setState((s) => ({ stores: s.stores.filter((st) => st.id !== id), items: s.items.filter((i) => i.storeId !== id) }));
+    setState((s) => ({ ...s, stores: s.stores.filter((st) => st.id !== id), items: s.items.filter((i) => i.storeId !== id) }));
+
+  // Fotos por nombre de producto: así un producto habitual sale con su foto cada vez que se apunta
+  const setPhoto = (name, photo) =>
+    setState((s) => {
+      const photos = { ...s.photos };
+      if (photo) photos[norm(name)] = photo;
+      else delete photos[norm(name)];
+      return { ...s, photos };
+    });
 
   const store = state.stores.find((s) => s.id === currentStoreId);
+
+  // Barra de estado: iconos blancos sobre las cabeceras de color (súper, escucha); en el inicio, que tiene
+  // el fondo de la página, los del tema del sistema (DEFAULT: oscuros en claro, blancos en oscuro)
+  const darkBar = !!store || !!listening;
+  useEffect(() => {
+    if (Capacitor.isNativePlatform()) StatusBar.setStyle({ style: darkBar ? Style.Dark : Style.Default }).catch(() => {});
+  }, [darkBar]);
 
   // Ejemplos para la pantalla de escucha, con los súper del usuario
   const names = state.stores.map((s) => s.name);
@@ -214,6 +236,8 @@ export default function App() {
           store={store}
           stores={state.stores}
           items={state.items.filter((i) => i.storeId === store.id)}
+          photos={state.photos}
+          onSetPhoto={setPhoto}
           voiceOk={voiceOk}
           onStartVoice={startVoice}
           onBack={goHome}
@@ -292,6 +316,8 @@ const ICONS = {
   chevron: 'M9 6l6 6-6 6',
   check: 'M5 12.5l4.5 4.5L19 7.5',
   mic: 'M12 3a3 3 0 0 0-3 3v5a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3zM19 11a7 7 0 0 1-14 0M12 18v3',
+  camera: 'M4 8.5A2.5 2.5 0 0 1 6.5 6h1.8l1.4-2h4.6l1.4 2h1.8A2.5 2.5 0 0 1 20 8.5v8a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5zM12 16a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4z',
+  image: 'M6 4h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM4 16l4.5-4.5 4 4 2.5-2.5L20 18M16.5 9a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0z',
   cart: 'M3 4h2.2l2.3 10.5a1.5 1.5 0 0 0 1.5 1.2h8.4a1.5 1.5 0 0 0 1.5-1.1L21 8H6.1M10 20a1 1 0 1 0-2 0 1 1 0 0 0 2 0zM18 20a1 1 0 1 0-2 0 1 1 0 0 0 2 0z',
 };
 
@@ -445,23 +471,37 @@ function HomeScreen({ stores, items, voiceOk, onStartVoice, onOpenStore, onAddIt
 
   const totalPending = items.filter((i) => !i.done).length;
   const selected = stores.find((s) => s.id === storeId);
+  const pendingStores = stores.filter((s) => items.some((i) => i.storeId === s.id && !i.done)).map((s) => s.name);
+  const today = new Date().toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' });
 
   return (
     <div className="screen">
-      <header className="topbar home">
-        <div className="title-block">
-          <h1>ToBuy</h1>
-          <p className="subtitle">
-            {totalPending === 0
-              ? 'No tienes nada pendiente'
-              : totalPending === 1
-                ? '1 producto pendiente'
-                : `${totalPending} productos pendientes`}
-          </p>
+      {/* La cabecera del inicio no es fija: esto tapa lo que pase por detrás de la barra de estado */}
+      <div className="status-scrim" aria-hidden="true" />
+      <header className="home-head">
+        <div className="brand-row">
+          <span className="app-mark" aria-hidden="true">
+            <Icon d={ICONS.cart} size={17} />
+          </span>
+          <span className="app-name">ToBuy</span>
+          <span className="today">{today}</span>
         </div>
-        <span className="header-icon" aria-hidden="true">
-          <Icon d={ICONS.cart} size={26} />
-        </span>
+        <h1 className="home-title">
+          {totalPending === 0 ? (
+            'Nada pendiente'
+          ) : (
+            <>
+              <span className="count">{totalPending}</span> {totalPending === 1 ? 'cosa' : 'cosas'} por comprar
+            </>
+          )}
+        </h1>
+        <p className="home-sub">
+          {totalPending === 0
+            ? 'Apunta aquí lo que te vaya faltando'
+            : pendingStores.length <= 3
+              ? `en ${pendingStores.join(', ').replace(/, ([^,]*)$/, ' y $1')}`
+              : `en ${pendingStores.length} supermercados`}
+        </p>
       </header>
 
       <form onSubmit={submit} className="card quick-add" style={{ '--c': selected?.color }}>
@@ -613,12 +653,13 @@ function AddStoreSheet({ stores, onAdd, onClose }) {
 
 /* ---------------- Pantalla de un supermercado ---------------- */
 function StoreScreen({
-  store, stores, items, voiceOk, onStartVoice, onBack, onAdd, onVoiceAdd, onNotice, onToggle, onDelete, onMove,
+  store, stores, items, photos, onSetPhoto, voiceOk, onStartVoice, onBack, onAdd, onVoiceAdd, onNotice, onToggle, onDelete, onMove,
   onClearDone, onDeleteStore,
 }) {
   const [name, setName] = useState('');
   const [qty, setQty] = useState('');
   const [moving, setMoving] = useState(null); // producto que se está moviendo a otro súper
+  const [photoFor, setPhotoFor] = useState(null); // producto del que se está eligiendo la foto
   const nameRef = useRef(null);
 
   const todo = items.filter((i) => !i.done);
@@ -642,26 +683,38 @@ function StoreScreen({
     else onNotice('No te he entendido. Prueba otra vez');
   };
 
-  const renderItem = (i) => (
-    <li key={i.id} className={'item' + (i.done ? ' done' : '')}>
-      <label>
-        <input type="checkbox" checked={i.done} onChange={() => onToggle(i.id)} />
-        <span className="check" aria-hidden="true">
-          <svg viewBox="0 0 24 24" width="16" height="16"><path d={ICONS.check} /></svg>
-        </span>
-        <span className="item-name">{i.name}</span>
-        {i.qty && <span className="item-qty">{i.qty}</span>}
-      </label>
-      {others.length > 0 && (
-        <button className="icon" title="Mover a otro súper" aria-label="Mover a otro súper" onClick={() => setMoving(i)}>
-          <Icon d={ICONS.move} size={18} />
+  const renderItem = (i) => {
+    const photo = photos[norm(i.name)];
+    return (
+      <li key={i.id} className={'item' + (i.done ? ' done' : '')}>
+        <label>
+          <input type="checkbox" checked={i.done} onChange={() => onToggle(i.id)} />
+          <span className="check" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="16" height="16"><path d={ICONS.check} /></svg>
+          </span>
+          {/* Un botón dentro de la etiqueta no marca la casilla al tocarlo */}
+          <button
+            type="button"
+            className={'thumb' + (photo ? '' : ' blank')}
+            aria-label={photo ? `Foto de ${i.name}` : `Añadir foto de ${i.name}`}
+            onClick={() => setPhotoFor(i)}
+          >
+            {photo ? <img src={photo} alt="" /> : <Icon d={ICONS.camera} size={18} />}
+          </button>
+          <span className="item-name">{i.name}</span>
+          {i.qty && <span className="item-qty">{i.qty}</span>}
+        </label>
+        {others.length > 0 && (
+          <button className="icon" title="Mover a otro súper" aria-label="Mover a otro súper" onClick={() => setMoving(i)}>
+            <Icon d={ICONS.move} size={18} />
+          </button>
+        )}
+        <button className="icon danger" title="Borrar" aria-label="Borrar" onClick={() => onDelete(i.id)}>
+          <Icon d={ICONS.close} size={18} />
         </button>
-      )}
-      <button className="icon danger" title="Borrar" aria-label="Borrar" onClick={() => onDelete(i.id)}>
-        <Icon d={ICONS.close} size={18} />
-      </button>
-    </li>
-  );
+      </li>
+    );
+  };
 
   return (
     <div className="screen" style={{ '--c': store.color }}>
@@ -739,6 +792,19 @@ function StoreScreen({
 
       {voiceOk && <VoiceButton label="Dime qué falta" onClick={() => onStartVoice(onVoice)} />}
 
+      {photoFor && (
+        <PhotoSheet
+          item={photoFor}
+          photo={photos[norm(photoFor.name)]}
+          onSet={(photo) => {
+            onSetPhoto(photoFor.name, photo);
+            setPhotoFor(null);
+          }}
+          onNotice={onNotice}
+          onClose={() => setPhotoFor(null)}
+        />
+      )}
+
       {moving && (
         <Sheet title={`Mover «${moving.name}» a…`} onClose={() => setMoving(null)}>
           <div className="move-list">
@@ -760,5 +826,87 @@ function StoreScreen({
         </Sheet>
       )}
     </div>
+  );
+}
+
+/* ---------------- Foto de un producto ---------------- */
+// Hoja para elegir la foto: de internet (Wikipedia y Open Food Facts), con la cámara o de la galería.
+// La foto se guarda por nombre, así que vale para todas las veces que se apunte ese producto.
+function PhotoSheet({ item, photo, onSet, onNotice, onClose }) {
+  const [results, setResults] = useState(null); // null: buscando; 'error': sin conexión
+  const [busy, setBusy] = useState(false);
+  const cameraRef = useRef(null);
+  const galleryRef = useRef(null);
+
+  useEffect(() => {
+    let alive = true;
+    searchPhotos(item.name).then(
+      (r) => alive && setResults(r),
+      () => alive && setResults('error')
+    );
+    return () => {
+      alive = false;
+    };
+  }, [item.name]);
+
+  // Se guarda una miniatura; si una foto de internet no se deja copiar, se guarda su dirección
+  const choose = async (source) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      onSet(await makeThumb(source));
+    } catch {
+      if (typeof source === 'string') onSet(source);
+      else onNotice('No se ha podido abrir esa foto');
+    } finally {
+      setBusy(false);
+    }
+  };
+  const onFile = (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (file) choose(file);
+  };
+
+  return (
+    <Sheet title={`Foto de «${item.name}»`} onClose={onClose}>
+      {photo && (
+        <div className="photo-current">
+          <img src={photo} alt={item.name} />
+          <button className="link danger" onClick={() => onSet(null)}>Quitar foto</button>
+        </div>
+      )}
+      <div className="photo-actions">
+        <button className="photo-action" disabled={busy} onClick={() => cameraRef.current?.click()}>
+          <Icon d={ICONS.camera} /> Hacer foto
+        </button>
+        <button className="photo-action" disabled={busy} onClick={() => galleryRef.current?.click()}>
+          <Icon d={ICONS.image} /> Galería
+        </button>
+        <input ref={cameraRef} type="file" accept="image/*" capture="environment" hidden onChange={onFile} />
+        <input ref={galleryRef} type="file" accept="image/*" hidden onChange={onFile} />
+      </div>
+      <h3 className="sheet-subtitle">De internet</h3>
+      {results === null ? (
+        <div className="photo-grid" aria-busy="true">
+          {Array.from({ length: 6 }, (_, n) => <span key={n} className="photo-tile loading" />)}
+        </div>
+      ) : results === 'error' ? (
+        <p className="photo-note">Sin conexión. Puedes hacer una foto o elegirla de la galería.</p>
+      ) : results.length === 0 ? (
+        <p className="photo-note">No he encontrado fotos de «{item.name}».</p>
+      ) : (
+        <>
+          <div className="photo-grid">
+            {results.map((r) => (
+              <button key={r.url} className="photo-tile" title={r.label} disabled={busy} onClick={() => choose(r.url)}>
+                <img src={r.url} alt={r.label} loading="lazy" />
+              </button>
+            ))}
+          </div>
+          <p className="photo-note small">Fotos de Wikipedia y Open Food Facts</p>
+        </>
+      )}
+    </Sheet>
   );
 }
