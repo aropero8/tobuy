@@ -4,7 +4,7 @@
 // Si no se nombra ningún súper, storeId es null y decide la pantalla.
 
 // Minúsculas, sin tildes ni signos: «Día,» → «dia»
-const norm = (s) => s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+export const norm = (s) => s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
 
 // Palabras que sobran delante del súper («en el Lidl», «para Mercadona»)
 const BEFORE_STORE = new Set(['en', 'el', 'la', 'los', 'las', 'de', 'del', 'al', 'a', 'para']);

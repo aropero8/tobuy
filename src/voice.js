@@ -31,13 +31,22 @@ export function voiceAvailable() {
 }
 
 // Escucha una frase y devuelve las alternativas reconocidas, la más probable primero.
+// Mientras escucha avisa con onPartial(texto provisional) y, solo en Android, onLevel(volumen de 0 a 1).
 // Si falla, el error trae en `message` el aviso para el usuario.
-export async function listen() {
+export async function listen({ onPartial, onLevel } = {}) {
   let matches;
+  const subs = [];
   try {
-    matches = native ? (await Voice.listen({ language: LANG })).matches : await listenWeb();
+    if (native) {
+      if (onPartial) subs.push(await Voice.addListener('partial', (e) => onPartial(e.text)));
+      // rmsdB va más o menos de -2 (silencio) a 10 (voz alta)
+      if (onLevel) subs.push(await Voice.addListener('level', (e) => onLevel(Math.min(1, Math.max(0, (e.level + 2) / 12)))));
+    }
+    matches = native ? (await Voice.listen({ language: LANG })).matches : await listenWeb(onPartial);
   } catch (e) {
     throw e.voice ? e : fail(e.code);
+  } finally {
+    subs.forEach((s) => s.remove());
   }
   if (!matches?.length) throw fail('nomatch');
   return matches;
@@ -45,13 +54,18 @@ export async function listen() {
 
 let webRec = null;
 
-function listenWeb() {
+function listenWeb(onPartial) {
   return new Promise((resolve, reject) => {
     const rec = new WebRecognition();
     rec.lang = LANG;
     rec.maxAlternatives = 5;
+    rec.interimResults = !!onPartial;
     let matches = [];
-    rec.onresult = (e) => (matches = Array.from(e.results[0], (alt) => alt.transcript));
+    rec.onresult = (e) => {
+      // El resultado provisional solo trae una alternativa; si se corta antes del final, se usa ese
+      matches = Array.from(e.results[0], (alt) => alt.transcript);
+      if (!e.results[0].isFinal) onPartial?.(Array.from(e.results, (r) => r[0].transcript).join(''));
+    };
     rec.onerror = (e) => reject(fail(WEB_ERRORS[e.error]));
     rec.onend = () => {
       webRec = null;
