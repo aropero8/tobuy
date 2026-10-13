@@ -21,6 +21,7 @@ import sparMark from './assets/stores/spar-mark.svg';
 import gadis from './assets/stores/gadis.svg';
 import froiz from './assets/stores/froiz.svg';
 import caprabo from './assets/stores/caprabo.svg';
+import ahorramas from './assets/stores/ahorramas.png';
 
 // keys: nombres normalizados (sin espacios ni tildes) que cuentan como ese súper
 export const BRANDS = [
@@ -28,6 +29,7 @@ export const BRANDS = [
   { keys: ['lidl'], name: 'Lidl', color: '#0050aa', logo: lidl, mark: lidl },
   { keys: ['carrefour'], name: 'Carrefour', color: '#004e9f', logo: carrefour, mark: carrefourMark },
   { keys: ['dia'], name: 'Dia', color: '#e4002b', logo: dia, mark: dia, scale: 0.78 },
+  { keys: ['ahorramas'], name: 'Ahorramás', color: '#e2231a', logo: ahorramas },
   { keys: ['aldi'], name: 'Aldi', color: '#1c3d8f', logo: aldi, mark: aldi },
   { keys: ['eroski'], name: 'Eroski', color: '#e42219', logo: eroski, mark: eroskiMark },
   { keys: ['elcorteingles', 'corteingles'], name: 'El Corte Inglés', color: '#008657', logo: elcorteingles,
