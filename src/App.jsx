@@ -373,14 +373,11 @@ function Sheet({ title, onClose, children }) {
 }
 
 /* ---------------- Voz ---------------- */
-// Botón grande y fijo abajo para dictar (se oculta mientras se escribe, ver CSS)
+// Botón redondo y fijo abajo para dictar (se oculta mientras se escribe, ver CSS); el texto va como etiqueta accesible
 function VoiceButton({ label, onClick }) {
   return (
-    <button className="voice-fab" onClick={onClick}>
-      <span className="voice-fab-mic">
-        <Icon d={ICONS.mic} size={26} />
-      </span>
-      {label}
+    <button className="voice-fab" onClick={onClick} aria-label={label} title={label}>
+      <Icon d={ICONS.mic} size={30} />
     </button>
   );
 }
@@ -767,7 +764,7 @@ function StoreScreen({
         <div className="empty">
           <div className="empty-icon">🧺</div>
           <p>No tienes nada apuntado para {store.name}.</p>
-          {voiceOk && <p className="empty-hint">Pulsa «Dime qué falta» y dilo en voz alta.</p>}
+          {voiceOk && <p className="empty-hint">Pulsa el micro de abajo y dilo en voz alta.</p>}
         </div>
       )}
 

@@ -8,8 +8,8 @@ App en React (Vite) preparada para empaquetar en Android con Capacitor.
 - **Inicio**: cada supermercado con su logo y lo que tienes pendiente en él; añade productos rápido eligiendo el súper con un toque.
 - **Pantalla de supermercado**: tu lista para esa tienda; marca lo que metes en el carro, mueve productos a otro súper, bórralos o quita lo ya comprado (con opción de deshacer).
 - **Fotos de productos**: toca el hueco de la foto de un producto y elige una de internet (Wikipedia y Open Food Facts), hazla con la cámara o cógela de la galería. La foto se recuerda por nombre: la próxima vez que apuntes ese producto, sale con ella. Se guarda en el móvil, así que se ve sin conexión.
-- **Por voz**: pulsa «Dime qué necesitas» y di, por ejemplo, «queso Carrefour» o «2 kilos de naranjas en el Lidl»; ves lo que va entendiendo y se apunta solo.
-- Puedes añadir o borrar supermercados; los conocidos (Mercadona, Lidl, Carrefour, Dia, Aldi, Eroski…) salen con su logo. Todo se guarda en el móvil.
+- **Por voz**: pulsa el micro de abajo y di, por ejemplo, «queso Carrefour» o «2 kilos de naranjas en el Lidl»; ves lo que va entendiendo y se apunta solo.
+- Puedes añadir o borrar supermercados; los conocidos (Mercadona, Lidl, Carrefour, Dia, Ahorramás, Aldi, Eroski…) salen con su logo. Todo se guarda en el móvil.
 
 ## Probar en el navegador
 ```bash
