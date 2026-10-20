@@ -21,6 +21,9 @@ keystore.properties
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+# Emuladores de Firebase (npx firebase-tools emulators:start)
+firebase-debug.log
+firestore-debug.log
 
 # Claude Code: ajustes locales de cada persona (launch.json sí se sube)
 .claude/settings.local.json

@@ -3,8 +3,9 @@ import { Capacitor } from '@capacitor/core';
 import { App as CapacitorApp } from '@capacitor/app';
 import { StatusBar, Style } from '@capacitor/status-bar';
 import { loadState, saveState, uid } from './storage.js';
+import { joinList, useSyncedState } from './sync.js';
 import { norm, parseVoice } from './parseVoice.js';
-import { makeThumb, searchPhotos } from './photos.js';
+import { makeThumb, offAvailable, searchPhotos } from './photos.js';
 import { listen, stopListening, voiceAvailable } from './voice.js';
 import { BRANDS, brandOf } from './brands.js';
 
@@ -31,7 +32,9 @@ function useBackHandler(active, onBack) {
 }
 
 export default function App() {
-  const [state, setState] = useState(loadState);
+  // Con Firebase configurado, la lista se comparte (sync.js); el estado se sigue guardando aquí como copia
+  // para arrancar al instante
+  const [state, setState, sync] = useSyncedState(loadState, (msg) => showToast(msg));
   const [currentStoreId, setCurrentStoreId] = useState(null);
   const [toast, setToast] = useState(null); // { id, text, store?, undo? }
   const toastTimer = useRef(null);
@@ -210,6 +213,11 @@ export default function App() {
       return { ...s, photos };
     });
 
+  const joinShared = async (code) => {
+    await joinList(code);
+    showToast('Ya estás en la lista compartida');
+  };
+
   const store = state.stores.find((s) => s.id === currentStoreId);
 
   // Barra de estado: iconos blancos sobre las cabeceras de color (súper, escucha); en el inicio, que tiene
@@ -267,6 +275,8 @@ export default function App() {
           onVoiceAdd={addVoiceItem}
           onNotice={showToast}
           onAddStore={addStore}
+          sync={sync}
+          onJoin={joinShared}
         />
       )}
       {listening && (
@@ -319,6 +329,8 @@ const ICONS = {
   camera: 'M4 8.5A2.5 2.5 0 0 1 6.5 6h1.8l1.4-2h4.6l1.4 2h1.8A2.5 2.5 0 0 1 20 8.5v8a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5zM12 16a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4z',
   image: 'M6 4h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM4 16l4.5-4.5 4 4 2.5-2.5L20 18M16.5 9a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0z',
   cart: 'M3 4h2.2l2.3 10.5a1.5 1.5 0 0 0 1.5 1.2h8.4a1.5 1.5 0 0 0 1.5-1.1L21 8H6.1M10 20a1 1 0 1 0-2 0 1 1 0 0 0 2 0zM18 20a1 1 0 1 0-2 0 1 1 0 0 0 2 0z',
+  people: 'M16 20v-1.5a3.5 3.5 0 0 0-3.5-3.5h-5A3.5 3.5 0 0 0 4 18.5V20M10 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM20 20v-1.5a3.5 3.5 0 0 0-2.6-3.4M15.5 4.2a3.5 3.5 0 0 1 0 6.6',
+  share: 'M12 15V3M8 7l4-4 4 4M5 12v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6',
 };
 
 /* ---------------- Logos de los súper ---------------- */
@@ -434,11 +446,14 @@ function VoiceOverlay({ rootRef, text, store, examples, onFinish, onCancel }) {
 }
 
 /* ---------------- Pantalla inicial ---------------- */
-function HomeScreen({ stores, items, voiceOk, onStartVoice, onOpenStore, onAddItem, onVoiceAdd, onNotice, onAddStore }) {
+function HomeScreen({
+  stores, items, voiceOk, onStartVoice, onOpenStore, onAddItem, onVoiceAdd, onNotice, onAddStore, sync, onJoin,
+}) {
   const [name, setName] = useState('');
   const [qty, setQty] = useState('');
   const [storeId, setStoreId] = useState(stores[0]?.id ?? '');
   const [addingStore, setAddingStore] = useState(false);
+  const [sharing, setSharing] = useState(false);
   const nameRef = useRef(null);
 
   useEffect(() => {
@@ -482,6 +497,16 @@ function HomeScreen({ stores, items, voiceOk, onStartVoice, onOpenStore, onAddIt
           </span>
           <span className="app-name">ToBuy</span>
           <span className="today">{today}</span>
+          {sync.status !== 'off' && (
+            <button
+              className={'share-btn' + (sync.members > 1 ? ` shared ${sync.status}` : '')}
+              aria-label="Lista compartida"
+              title="Lista compartida"
+              onClick={() => setSharing(true)}
+            >
+              <Icon d={ICONS.people} size={19} />
+            </button>
+          )}
         </div>
         <h1 className="home-title">
           {totalPending === 0 ? (
@@ -569,7 +594,120 @@ function HomeScreen({ stores, items, voiceOk, onStartVoice, onOpenStore, onAddIt
           onClose={() => setAddingStore(false)}
         />
       )}
+
+      {sharing && (
+        <ShareSheet
+          sync={sync}
+          hasItems={items.length > 0}
+          onJoin={async (code) => {
+            await onJoin(code);
+            setSharing(false);
+          }}
+          onNotice={onNotice}
+          onClose={() => setSharing(false)}
+        />
+      )}
     </div>
+  );
+}
+
+// Dirección de la versión web (GitHub Pages): desde ahí se instala en el iPhone
+const WEB_URL = 'https://aropero8.github.io/tobuy/';
+
+const SYNC_STATUS = {
+  connecting: 'Conectando…',
+  ok: 'Sincronizada',
+  offline: 'Sin conexión: los cambios se enviarán al volver',
+  error: 'No se puede acceder a la lista',
+};
+
+// Lista compartida: el código de esta lista para pasárselo a otro, y unirse a la de otro con el suyo
+function ShareSheet({ sync, hasItems, onJoin, onNotice, onClose }) {
+  const [code, setCode] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const codeRef = useRef(null);
+  const message =
+    `Apunta conmigo la lista de la compra en ToBuy. En el iPhone, abre ${WEB_URL} en Safari y añádela a la ` +
+    `pantalla de inicio (botón Compartir). Después toca el botón de las personas y pega este código en «Unirme»:\n` +
+    sync.listId;
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(sync.listId);
+      onNotice('Código copiado');
+    } catch {
+      codeRef.current?.select();
+      onNotice('Mantén pulsado el código para copiarlo');
+    }
+  };
+
+  const join = async (e) => {
+    e.preventDefault();
+    if (!code.trim() || busy) return;
+    if (hasItems && !confirm('Dejarás de ver tu lista actual y verás la compartida. ¿Seguir?')) return;
+    setBusy(true);
+    setError('');
+    try {
+      await onJoin(code);
+    } catch (err) {
+      setError(err.message);
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Sheet title="Lista compartida" onClose={onClose}>
+      <p className={'sync-status ' + sync.status}>
+        <span className="dot" aria-hidden="true" />
+        {SYNC_STATUS[sync.status]}
+      </p>
+      <p className="share-note">
+        {sync.members > 1
+          ? `Compartida entre ${sync.members} móviles: lo que apuntéis aparece en todos.`
+          : 'De momento solo está en este móvil. Pásale el código a quien quieras para apuntar juntos.'}
+      </p>
+
+      <h3 className="sheet-subtitle">Código de tu lista</h3>
+      <div className="share-code">
+        <input
+          ref={codeRef}
+          readOnly
+          value={sync.listId ?? 'Conectando…'}
+          aria-label="Código de tu lista"
+          onFocus={(e) => e.target.select()}
+        />
+        <button className="primary small" disabled={!sync.listId} onClick={copy}>Copiar</button>
+      </div>
+      {navigator.share && (
+        <button
+          className="photo-action share-send"
+          disabled={!sync.listId}
+          onClick={() => navigator.share({ title: 'ToBuy', text: message }).catch(() => {})}
+        >
+          <Icon d={ICONS.share} /> Enviar invitación
+        </button>
+      )}
+
+      <h3 className="sheet-subtitle">¿Te han pasado un código?</h3>
+      <form className="share-code" onSubmit={join}>
+        <input
+          placeholder="Pega aquí el código"
+          value={code}
+          autoCapitalize="off"
+          autoCorrect="off"
+          spellCheck={false}
+          onChange={(e) => {
+            setCode(e.target.value);
+            setError('');
+          }}
+        />
+        <button className="primary small" type="submit" disabled={!code.trim() || busy}>
+          {busy ? 'Uniendo…' : 'Unirme'}
+        </button>
+      </form>
+      {error && <p className="share-error" role="alert">{error}</p>}
+    </Sheet>
   );
 }
 
@@ -901,7 +1039,7 @@ function PhotoSheet({ item, photo, onSet, onNotice, onClose }) {
               </button>
             ))}
           </div>
-          <p className="photo-note small">Fotos de Wikipedia y Open Food Facts</p>
+          <p className="photo-note small">Fotos de Wikipedia{offAvailable && ' y Open Food Facts'}</p>
         </>
       )}
     </Sheet>
