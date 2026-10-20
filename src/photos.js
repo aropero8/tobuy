@@ -1,13 +1,14 @@
 // Fotos de productos: búsqueda en internet y miniaturas para guardar en el móvil.
 //   - Open Food Facts (search.openfoodfacts.org): fotos de productos envasados de España (Hacendado, Dia…).
 //     No manda cabeceras CORS: en Android se pide con CapacitorHttp (nativo) y en `npm run dev`, por el
-//     proxy /off de vite.config.js.
+//     proxy /off de vite.config.js. En la versión web publicada no se puede pedir, así que no se usa.
 //   - Wikipedia en español: fotos genéricas (fruta, verdura, pan…).
 // Las fotos se guardan como miniatura JPEG en data URL, para verlas sin conexión dentro del súper.
 import { Capacitor, CapacitorHttp } from '@capacitor/core';
 import { norm } from './parseVoice.js';
 
 const native = Capacitor.isNativePlatform();
+export const offAvailable = native || import.meta.env.DEV; // Open Food Facts (ver arriba)
 const UA = 'ToBuy/1.0 (https://github.com/aropero8/tobuy)';
 
 async function getJson(url, devUrl) {
@@ -56,7 +57,10 @@ async function searchWikipedia(query) {
 // Primero lo genérico de Wikipedia (suele acertar con «plátanos» o «pan») y luego los productos.
 // Si una fuente falla (sin conexión, límite de peticiones) se usan las demás.
 export async function searchPhotos(query) {
-  const [wiki, off] = await Promise.allSettled([searchWikipedia(query), searchOpenFoodFacts(query)]);
+  const [wiki, off] = await Promise.allSettled([
+    searchWikipedia(query),
+    offAvailable ? searchOpenFoodFacts(query) : Promise.reject(new Error('off')),
+  ]);
   const results = [...(wiki.value ?? []), ...(off.value ?? [])];
   if (!results.length && wiki.status === 'rejected' && off.status === 'rejected') throw new Error('offline');
   const seen = new Set();
