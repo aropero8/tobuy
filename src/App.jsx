@@ -13,6 +13,17 @@ const COLORS = ['#1f7a4d', '#0050aa', '#c8102e', '#e4002b', '#f39200', '#6b3fa0'
 // Color de un súper nuevo: el de su marca si es conocida; si no, el siguiente de la paleta
 const colorFor = (name, stores) => brandOf(name)?.color ?? COLORS[stores.length % COLORS.length];
 
+// «Cualquier súper»: lo que da igual dónde comprar. No es un súper del estado (no se puede borrar ni renombrar):
+// sus productos llevan storeId ANY y salen también en la lista de cada súper. `aliases` es para la voz.
+const ANY = 'any';
+const ANY_STORE = {
+  id: ANY, name: 'Cualquier súper', color: '#3f5d78',
+  aliases: ['cualquier supermercado', 'cualquier sitio', 'cualquier lado', 'cualquier parte', 'cualquiera',
+    'donde sea', 'da igual donde'],
+};
+// Nombre para ponerlo a media frase («añadido a cualquier súper», «añadido a Lidl»)
+const inName = (store) => (store.id === ANY ? 'cualquier súper' : store.name);
+
 // Botón atrás de Android: lo abierto encima (una hoja, la escucha) se cierra antes de cambiar de pantalla.
 // Cada uno apunta aquí su acción mientras está abierto; se ejecuta la del último.
 const backHandlers = [];
@@ -155,14 +166,27 @@ export default function App() {
   // Desde el inicio y por voz se avisa de dónde se ha apuntado, con deshacer por si se ha entendido mal
   const addItemWithNotice = (name, storeId, qty = '') => {
     const id = addItem(name, storeId, qty);
-    const st = state.stores.find((s) => s.id === storeId);
-    const where = storeId === currentStoreId ? '' : ` a ${st?.name}`;
+    const st = allStores.find((s) => s.id === storeId);
+    const where = storeId === currentStoreId || !st ? '' : ` a ${inName(st)}`;
     showToast(`«${name.trim()}»${qty.trim() ? ` (${qty.trim()})` : ''} añadido${where}`, { store: st, undo: undoAdd(id) });
   };
   const addVoiceItem = ({ name, qty }, storeId) => addItemWithNotice(name, storeId, qty);
 
-  const toggleItem = (id) =>
-    setState((s) => ({ ...s, items: s.items.map((i) => (i.id === id ? { ...i, done: !i.done } : i)) }));
+  // Lo de cualquier súper, al marcarlo en un súper, pasa al carro de ese súper (para que no salga comprado
+  // en los demás); `fromAny` lo recuerda para devolverlo a cualquier súper si se desmarca
+  const toggleItem = (id, inStoreId) =>
+    setState((s) => ({
+      ...s,
+      items: s.items.map((i) => {
+        if (i.id !== id) return i;
+        if (!i.done && i.storeId === ANY && inStoreId !== ANY) return { ...i, done: true, storeId: inStoreId, fromAny: true };
+        if (i.done && i.fromAny) {
+          const { fromAny, ...rest } = i;
+          return { ...rest, done: false, storeId: ANY };
+        }
+        return { ...i, done: !i.done };
+      }),
+    }));
 
   // Quita productos y ofrece deshacer: se vuelven a meter en su sitio (orden por fecha de creación)
   const removeItems = (removed, text) => {
@@ -172,7 +196,7 @@ export default function App() {
     showToast(text, {
       undo: () =>
         setState((s) => {
-          const storeIds = new Set(s.stores.map((st) => st.id));
+          const storeIds = new Set([ANY, ...s.stores.map((st) => st.id)]);
           const back = removed.filter((i) => storeIds.has(i.storeId) && !s.items.some((x) => x.id === i.id));
           return { ...s, items: [...s.items, ...back].sort((a, b) => a.createdAt - b.createdAt) };
         }),
@@ -185,13 +209,21 @@ export default function App() {
   };
 
   const moveItem = (id, storeId) => {
-    setState((s) => ({ ...s, items: s.items.map((i) => (i.id === id ? { ...i, storeId } : i)) }));
-    const st = state.stores.find((s) => s.id === storeId);
-    showToast(`Movido a ${st?.name}`, { store: st });
+    setState((s) => ({
+      ...s,
+      items: s.items.map((i) => {
+        if (i.id !== id) return i;
+        const { fromAny, ...rest } = i; // movido a mano: ya no vuelve solo a cualquier súper
+        return { ...rest, storeId };
+      }),
+    }));
+    const st = allStores.find((s) => s.id === storeId);
+    if (st) showToast(`Movido a ${inName(st)}`, { store: st });
   };
 
-  const clearDone = (storeId) => {
-    const removed = state.items.filter((i) => i.storeId === storeId && i.done);
+  // Quita los comprados de los que se ven en la pantalla (en un súper, también los de cualquier súper)
+  const clearDone = (shown) => {
+    const removed = shown.filter((i) => i.done);
     removeItems(removed, removed.length === 1 ? '1 producto quitado' : `${removed.length} productos quitados`);
   };
 
@@ -210,7 +242,10 @@ export default function App() {
       return { ...s, photos };
     });
 
-  const store = state.stores.find((s) => s.id === currentStoreId);
+  const allStores = [ANY_STORE, ...state.stores];
+  const store = allStores.find((s) => s.id === currentStoreId);
+  // En un súper se ven sus productos y los de cualquier súper
+  const shownItems = store ? state.items.filter((i) => i.storeId === store.id || i.storeId === ANY) : [];
 
   // Barra de estado: iconos blancos sobre las cabeceras de color (súper, escucha); en el inicio, que tiene
   // el fondo de la página, los del tema del sistema (DEFAULT: oscuros en claro, blancos en oscuro)
@@ -224,8 +259,7 @@ export default function App() {
   const voiceExamples = store
     ? ['2 litros de leche', 'una docena de huevos', 'pan de molde']
     : names.length
-      ? [`leche en ${names[0]}`, `2 kilos de naranjas en ${names[1 % names.length]}`,
-        `una docena de huevos en ${names[2 % names.length]}`]
+      ? [`leche en ${names[0]}`, `2 kilos de naranjas en ${names[1 % names.length]}`, 'una docena de huevos']
       : ['leche'];
 
   return (
@@ -235,7 +269,7 @@ export default function App() {
           key={store.id}
           store={store}
           stores={state.stores}
-          items={state.items.filter((i) => i.storeId === store.id)}
+          items={shownItems}
           photos={state.photos}
           onSetPhoto={setPhoto}
           voiceOk={voiceOk}
@@ -244,10 +278,10 @@ export default function App() {
           onAdd={(name, qty) => addItem(name, store.id, qty)}
           onVoiceAdd={addVoiceItem}
           onNotice={showToast}
-          onToggle={toggleItem}
+          onToggle={(id) => toggleItem(id, store.id)}
           onDelete={deleteItem}
           onMove={moveItem}
-          onClearDone={() => clearDone(store.id)}
+          onClearDone={() => clearDone(shownItems)}
           onDeleteStore={() => {
             if (confirm(`¿Borrar ${store.name} y todos sus productos?`)) {
               deleteStore(store.id);
@@ -324,8 +358,14 @@ const ICONS = {
 /* ---------------- Logos de los súper ---------------- */
 // Símbolo cuadrado del súper; si no tiene logo, su inicial sobre su color
 function StoreMark({ store, size = 28 }) {
-  const brand = brandOf(store.name);
   const box = { width: size, height: size };
+  if (store.id === ANY)
+    return (
+      <span className="mark letter" style={{ ...box, '--c': store.color }} aria-hidden="true">
+        <Icon d={ICONS.cart} size={size * 0.6} />
+      </span>
+    );
+  const brand = brandOf(store.name);
   return brand?.mark ? (
     <span className="mark" style={box}>
       <img src={brand.mark} alt="" />
@@ -339,6 +379,12 @@ function StoreMark({ store, size = 28 }) {
 
 // Logotipo completo; si no lo tiene, el nombre en grande con su color
 function StoreLogo({ store }) {
+  if (store.id === ANY)
+    return (
+      <span className="logo-any" style={{ '--c': store.color }}>
+        <Icon d={ICONS.cart} size={26} /> {store.name}
+      </span>
+    );
   const brand = brandOf(store.name);
   return brand ? (
     <img className="logo" src={brand.logo} alt={store.name} style={{ '--scale': brand.scale }} />
@@ -406,10 +452,10 @@ function VoiceOverlay({ rootRef, text, store, examples, onFinish, onCancel }) {
       <span className="voice-target">
         {store ? (
           <>
-            <StoreMark store={store} size={28} /> Apuntando en {store.name}
+            <StoreMark store={store} size={28} /> Apuntando en {inName(store)}
           </>
         ) : (
-          'Di el producto y el supermercado'
+          'Di el producto y, si quieres, el súper'
         )}
       </span>
       <p className={'voice-text' + (text ? '' : ' hint')} aria-live="polite">
@@ -437,38 +483,36 @@ function VoiceOverlay({ rootRef, text, store, examples, onFinish, onCancel }) {
 function HomeScreen({ stores, items, voiceOk, onStartVoice, onOpenStore, onAddItem, onVoiceAdd, onNotice, onAddStore }) {
   const [name, setName] = useState('');
   const [qty, setQty] = useState('');
-  const [storeId, setStoreId] = useState(stores[0]?.id ?? '');
+  const [storeId, setStoreId] = useState(ANY); // si no se elige súper, va a cualquier súper
   const [addingStore, setAddingStore] = useState(false);
   const nameRef = useRef(null);
+  const choices = [ANY_STORE, ...stores];
 
   useEffect(() => {
-    if (!stores.some((s) => s.id === storeId)) setStoreId(stores[0]?.id ?? '');
+    if (storeId !== ANY && !stores.some((s) => s.id === storeId)) setStoreId(ANY);
   }, [stores, storeId]);
 
   const submit = (e) => {
     e.preventDefault();
-    if (!name.trim() || !storeId) return;
+    if (!name.trim()) return;
     onAddItem(name, storeId, qty);
     setName('');
     setQty('');
     nameRef.current?.focus(); // para seguir añadiendo sin volver a tocar el campo
   };
 
-  // «queso carrefour» se apunta directamente; si no se ha dicho el súper, se deja escrito para elegirlo
+  // «queso carrefour» se apunta en Carrefour; si no se dice el súper, en cualquier súper (se puede mover luego)
   const onVoice = (matches) => {
-    const v = parseVoice(matches, stores);
-    if (!v.name) onNotice('No te he entendido. Prueba otra vez');
-    else if (v.storeId) onVoiceAdd(v, v.storeId);
-    else {
-      setName(v.name);
-      setQty(v.qty);
-      onNotice('No he oído el súper: elige uno y pulsa Añadir');
-    }
+    const v = parseVoice(matches, choices);
+    if (v.name) onVoiceAdd(v, v.storeId ?? ANY);
+    else onNotice('No te he entendido. Prueba otra vez');
   };
 
   const totalPending = items.filter((i) => !i.done).length;
-  const selected = stores.find((s) => s.id === storeId);
-  const pendingStores = stores.filter((s) => items.some((i) => i.storeId === s.id && !i.done)).map((s) => s.name);
+  const selected = choices.find((s) => s.id === storeId);
+  const pendingStores = [...stores, ANY_STORE]
+    .filter((s) => items.some((i) => i.storeId === s.id && !i.done))
+    .map(inName);
   const today = new Date().toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' });
 
   return (
@@ -517,7 +561,7 @@ function HomeScreen({ stores, items, voiceOk, onStartVoice, onOpenStore, onAddIt
         {name.trim() && (
           <div className="quick-add-more">
             <div className="chips" role="radiogroup" aria-label="Supermercado">
-              {stores.map((s) => (
+              {choices.map((s) => (
                 <button
                   type="button"
                   key={s.id}
@@ -532,8 +576,8 @@ function HomeScreen({ stores, items, voiceOk, onStartVoice, onOpenStore, onAddIt
                 </button>
               ))}
             </div>
-            <button className="primary" type="submit" disabled={!storeId}>
-              {selected ? `Añadir a ${selected.name}` : 'Añade antes un supermercado'}
+            <button className="primary" type="submit">
+              Añadir a {inName(selected ?? ANY_STORE)}
             </button>
           </div>
         )}
@@ -541,6 +585,11 @@ function HomeScreen({ stores, items, voiceOk, onStartVoice, onOpenStore, onAddIt
 
       <h2 className="section-title">Tus supermercados</h2>
       <div className="stores">
+        <StoreCard
+          store={ANY_STORE}
+          items={items.filter((i) => i.storeId === ANY)}
+          onOpen={() => onOpenStore(ANY)}
+        />
         {stores.map((s) => (
           <StoreCard
             key={s.id}
@@ -578,7 +627,7 @@ function StoreCard({ store, items, onOpen }) {
   const pending = items.filter((i) => !i.done);
   const done = items.length - pending.length;
   return (
-    <button className="store-card" style={{ '--c': store.color }} onClick={onOpen}>
+    <button className={'store-card' + (store.id === ANY ? ' any' : '')} style={{ '--c': store.color }} onClick={onOpen}>
       <span className="store-card-logo">
         <StoreLogo store={store} />
       </span>
@@ -601,7 +650,9 @@ function StoreCard({ store, items, onOpen }) {
             ? pending.map((i) => i.name).join(', ')
             : items.length > 0
               ? `${done} en el carro`
-              : 'Toca para apuntar'}
+              : store.id === ANY
+                ? 'Lo que te da igual dónde comprar'
+                : 'Toca para apuntar'}
         </span>
         {items.length > 0 && (
           <span className="store-progress" aria-hidden="true">
@@ -659,10 +710,14 @@ function StoreScreen({
   const [photoFor, setPhotoFor] = useState(null); // producto del que se está eligiendo la foto
   const nameRef = useRef(null);
 
-  const todo = items.filter((i) => !i.done);
+  // En un súper, lo de cualquier súper va en su propia sección; lo comprado, todo junto
+  const isAny = store.id === ANY;
+  const todo = items.filter((i) => !i.done && i.storeId === store.id);
+  const todoAny = isAny ? [] : items.filter((i) => !i.done && i.storeId === ANY);
   const done = items.filter((i) => i.done);
+  const pending = todo.length + todoAny.length;
   const progress = items.length ? done.length / items.length : 0;
-  const others = stores.filter((s) => s.id !== store.id);
+  const choices = [ANY_STORE, ...stores];
 
   const submit = (e) => {
     e.preventDefault();
@@ -675,7 +730,7 @@ function StoreScreen({
 
   // Por voz se apunta en este súper, salvo que se nombre otro («queso carrefour»)
   const onVoice = (matches) => {
-    const v = parseVoice(matches, stores);
+    const v = parseVoice(matches, choices);
     if (v.name) onVoiceAdd(v, v.storeId ?? store.id);
     else onNotice('No te he entendido. Prueba otra vez');
   };
@@ -701,11 +756,9 @@ function StoreScreen({
           <span className="item-name">{i.name}</span>
           {i.qty && <span className="item-qty">{i.qty}</span>}
         </label>
-        {others.length > 0 && (
-          <button className="icon" title="Mover a otro súper" aria-label="Mover a otro súper" onClick={() => setMoving(i)}>
-            <Icon d={ICONS.move} size={18} />
-          </button>
-        )}
+        <button className="icon" title="Mover a otro súper" aria-label="Mover a otro súper" onClick={() => setMoving(i)}>
+          <Icon d={ICONS.move} size={18} />
+        </button>
         <button className="icon danger" title="Borrar" aria-label="Borrar" onClick={() => onDelete(i.id)}>
           <Icon d={ICONS.close} size={18} />
         </button>
@@ -725,15 +778,19 @@ function StoreScreen({
               <StoreLogo store={store} />
             </span>
           </h1>
-          <button className="icon-btn" title="Borrar supermercado" aria-label="Borrar supermercado" onClick={onDeleteStore}>
-            <Icon d={ICONS.trash} />
-          </button>
+          {isAny ? (
+            <span className="icon-btn" aria-hidden="true" /> // cualquier súper no se borra; esto deja el logo centrado
+          ) : (
+            <button className="icon-btn" title="Borrar supermercado" aria-label="Borrar supermercado" onClick={onDeleteStore}>
+              <Icon d={ICONS.trash} />
+            </button>
+          )}
         </div>
         <div className="store-status">
           <span>
             {items.length === 0
               ? 'Lista vacía'
-              : todo.length === 0
+              : pending === 0
                 ? '¡Todo en el carro!'
                 : `${done.length} de ${items.length} en el carro`}
           </span>
@@ -763,12 +820,16 @@ function StoreScreen({
       {items.length === 0 && (
         <div className="empty">
           <div className="empty-icon">🧺</div>
-          <p>No tienes nada apuntado para {store.name}.</p>
+          <p>
+            {isAny
+              ? 'Apunta aquí lo que te da igual dónde comprar: saldrá en la lista de todos los súper.'
+              : `No tienes nada apuntado para ${store.name}.`}
+          </p>
           {voiceOk && <p className="empty-hint">Pulsa el micro de abajo y dilo en voz alta.</p>}
         </div>
       )}
 
-      {items.length > 0 && todo.length === 0 && (
+      {items.length > 0 && pending === 0 && (
         <div className="empty small">
           <div className="empty-icon">🎉</div>
           <p>¡Ya lo tienes todo!</p>
@@ -776,6 +837,15 @@ function StoreScreen({
       )}
 
       {todo.length > 0 && <ul className="list">{todo.map(renderItem)}</ul>}
+
+      {todoAny.length > 0 && (
+        <>
+          <h2 className="section-title any-title">
+            <StoreMark store={ANY_STORE} size={20} /> En cualquier súper · {todoAny.length}
+          </h2>
+          <ul className="list">{todoAny.map(renderItem)}</ul>
+        </>
+      )}
 
       {done.length > 0 && (
         <>
@@ -805,7 +875,7 @@ function StoreScreen({
       {moving && (
         <Sheet title={`Mover «${moving.name}» a…`} onClose={() => setMoving(null)}>
           <div className="move-list">
-            {others.map((s) => (
+            {choices.filter((s) => s.id !== moving.storeId).map((s) => (
               <button
                 key={s.id}
                 className="move-option"

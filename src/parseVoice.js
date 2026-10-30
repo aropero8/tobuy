@@ -30,11 +30,12 @@ const UNITS = new Set([
 
 const stripPunct = (s) => s.replace(/^[\s.,;:!?¡¿"'«»-]+|[\s.,;:!?¡¿"'«»-]+$/g, '');
 
-// Súper nombrado en la frase. Se compara pegando palabras para que «Ahorra Más» encaje con «Ahorramas».
+// Súper nombrado en la frase (por su nombre o por uno de sus `aliases`, si los tiene). Se compara pegando
+// palabras para que «Ahorra Más» encaje con «Ahorramas».
 // Si salen varios, gana el que acaba más tarde («pan del día en Mercadona» → Mercadona).
 function findStore(words, stores) {
   let best = null;
-  for (const s of stores) {
+  for (const s of stores.flatMap((st) => [st.name, ...(st.aliases ?? [])].map((name) => ({ id: st.id, name })))) {
     const key = s.name.split(/\s+/).map(norm).join('');
     if (!key) continue;
     for (let i = 0; i < words.length; i++) {
