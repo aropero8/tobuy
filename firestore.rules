@@ -1,0 +1,33 @@
+rules_version = '2';
+
+// Reglas de la base de datos de ToBuy (Firestore). Se pegan en la consola de Firebase → Firestore → Reglas.
+// Cada lista solo la ven y la cambian los móviles de `members` (usuarios anónimos). El id de la lista es el
+// código para unirse: quien lo sabe puede añadirse a sí mismo, y a nadie más. Nadie puede listar las listas.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /lists/{listId} {
+      allow get: if request.auth != null && request.auth.uid in resource.data.members;
+
+      allow create: if request.auth != null
+        && request.resource.data.keys().hasOnly(['members', 'createdAt'])
+        && request.resource.data.members == [request.auth.uid];
+
+      // Unirse: solo se puede añadir el propio usuario, sin quitar a nadie
+      allow update: if request.auth != null
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['members'])
+        && request.resource.data.members is list
+        && request.resource.data.members.size() <= 20
+        && request.resource.data.members.toSet().hasAll(resource.data.members)
+        && request.resource.data.members.toSet().difference(resource.data.members.toSet()).hasOnly([request.auth.uid]);
+
+      // Súper, productos y fotos. getAfter: la lista puede crearse en el mismo envío.
+      match /{col}/{docId} {
+        allow read: if col in ['stores', 'items', 'photos'] && request.auth != null
+          && request.auth.uid in get(/databases/$(database)/documents/lists/$(listId)).data.members;
+        allow write: if col in ['stores', 'items', 'photos'] && request.auth != null
+          && request.auth.uid in getAfter(/databases/$(database)/documents/lists/$(listId)).data.members
+          && (request.resource == null || request.resource.data.size() <= 8);
+      }
+    }
+  }
+}

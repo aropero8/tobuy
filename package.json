@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:emulador": "vite --mode emulador",
     "build": "vite build",
     "preview": "vite preview",
     "android": "npm run build && npx cap sync android && npx cap open android"
@@ -15,6 +16,7 @@
     "@capacitor/app": "^7.1.2",
     "@capacitor/core": "^7.0.0",
     "@capacitor/status-bar": "^7.0.6",
+    "firebase": "^12.19.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
