@@ -18,7 +18,7 @@ const colorFor = (name, stores) => brandOf(name)?.color ?? COLORS[stores.length 
 // sus productos llevan storeId ANY y salen también en la lista de cada súper. `aliases` es para la voz.
 const ANY = 'any';
 const ANY_STORE = {
-  id: ANY, name: 'Cualquier súper', color: '#3f5d78',
+  id: ANY, name: 'Cualquier súper', color: '#6b3fa0',
   aliases: ['cualquier supermercado', 'cualquier sitio', 'cualquier lado', 'cualquier parte', 'cualquiera',
     'donde sea', 'da igual donde'],
 };
@@ -355,6 +355,7 @@ const ICONS = {
   camera: 'M4 8.5A2.5 2.5 0 0 1 6.5 6h1.8l1.4-2h4.6l1.4 2h1.8A2.5 2.5 0 0 1 20 8.5v8a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5zM12 16a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4z',
   image: 'M6 4h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM4 16l4.5-4.5 4 4 2.5-2.5L20 18M16.5 9a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0z',
   cart: 'M3 4h2.2l2.3 10.5a1.5 1.5 0 0 0 1.5 1.2h8.4a1.5 1.5 0 0 0 1.5-1.1L21 8H6.1M10 20a1 1 0 1 0-2 0 1 1 0 0 0 2 0zM18 20a1 1 0 1 0-2 0 1 1 0 0 0 2 0z',
+  store: 'M4.5 4h15L21 9a3 3 0 0 1-6 0 3 3 0 0 1-6 0 3 3 0 0 1-6 0zM5 12v8h14v-8M10 20v-5h4v5',
   people: 'M16 20v-1.5a3.5 3.5 0 0 0-3.5-3.5h-5A3.5 3.5 0 0 0 4 18.5V20M10 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM20 20v-1.5a3.5 3.5 0 0 0-2.6-3.4M15.5 4.2a3.5 3.5 0 0 1 0 6.6',
   share: 'M12 15V3M8 7l4-4 4 4M5 12v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6',
 };
@@ -366,7 +367,7 @@ function StoreMark({ store, size = 28 }) {
   if (store.id === ANY)
     return (
       <span className="mark letter" style={{ ...box, '--c': store.color }} aria-hidden="true">
-        <Icon d={ICONS.cart} size={size * 0.6} />
+        <Icon d={ICONS.store} size={size * 0.6} />
       </span>
     );
   const brand = brandOf(store.name);
@@ -386,7 +387,7 @@ function StoreLogo({ store }) {
   if (store.id === ANY)
     return (
       <span className="logo-any" style={{ '--c': store.color }}>
-        <Icon d={ICONS.cart} size={26} /> {store.name}
+        <Icon d={ICONS.store} size={26} /> {store.name}
       </span>
     );
   const brand = brandOf(store.name);
