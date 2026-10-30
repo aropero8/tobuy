@@ -114,6 +114,11 @@ button:disabled { cursor: default; }
 }
 .mark img { width: 80%; height: 80%; object-fit: contain; }
 .mark.letter { background: var(--c); color: #fff; font-weight: 800; box-shadow: none; }
+/* «Cualquier súper» no tiene logo: el carrito y el nombre con su color */
+.logo-any {
+  display: inline-flex; align-items: center; gap: 8px; color: var(--c);
+  font-weight: 800; font-size: 1.15rem; letter-spacing: -.01em; white-space: nowrap;
+}
 
 /* ---------- Tarjetas y títulos ---------- */
 .card {
@@ -187,6 +192,9 @@ input:focus, select:focus { outline: none; border-color: var(--c); background: v
 .store-preview { font-size: .8rem; opacity: .88; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .store-progress { height: 4px; margin-top: 7px; border-radius: 99px; background: rgba(255, 255, 255, .28); overflow: hidden; }
 .store-progress span { display: block; height: 100%; background: #fff; border-radius: inherit; }
+/* Cualquier súper: a lo ancho, encima de los súper, con la franja del logo más baja */
+.store-card.any { grid-column: 1 / -1; }
+.store-card.any .store-card-logo { height: 54px; padding: 10px 14px; }
 .store-card.add {
   min-height: 150px; align-items: center; justify-content: center; gap: 10px;
   background: transparent; box-shadow: none; border: 2px dashed var(--border); color: var(--muted); font-weight: 600;
@@ -252,6 +260,7 @@ input:focus, select:focus { outline: none; border-color: var(--c); background: v
   width: 84px; height: 84px; margin: 0 auto 6px; border-radius: 50%; display: grid; place-items: center;
   font-size: 2.6rem; background: color-mix(in srgb, var(--c) 10%, transparent);
 }
+.section-title.any-title { display: flex; align-items: center; gap: 8px; }
 .done-header { display: flex; align-items: center; justify-content: space-between; padding-right: 12px; }
 .link {
   background: none; border: 0; color: var(--c); font-weight: 600; font-size: .88rem;

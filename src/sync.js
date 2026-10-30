@@ -32,7 +32,7 @@ const BATCH = 10;
 /* ---------------- Estado ↔ documentos ---------------- */
 const EMPTY = { stores: [], items: [], photos: {} };
 const STORE_FIELDS = ['name', 'color', 'order'];
-const ITEM_FIELDS = ['name', 'qty', 'storeId', 'done', 'createdAt'];
+const ITEM_FIELDS = ['name', 'qty', 'storeId', 'done', 'createdAt', 'fromAny'];
 const photoDoc = (key) => 'p' + key; // el prefijo evita un id vacío (un nombre sin letras ni números)
 const withOrder = (stores) => stores.map((s, order) => ({ ...s, order }));
 const photoDocs = (photos) => Object.entries(photos).map(([key, data]) => ({ id: photoDoc(key), data }));
@@ -72,8 +72,8 @@ const PARSE = {
       // Un producto borrado en un móvil mientras se cambiaba en el otro puede quedar a medias: se ignora
       .filter((i) => typeof i.name === 'string' && i.storeId)
       .sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0) || (a.id < b.id ? -1 : 1))
-      .map(({ id, name, qty, storeId, done, createdAt }) => ({
-        id, name, qty: qty ?? '', storeId, done: !!done, createdAt: createdAt ?? 0,
+      .map(({ id, name, qty, storeId, done, createdAt, fromAny }) => ({
+        id, name, qty: qty ?? '', storeId, done: !!done, createdAt: createdAt ?? 0, fromAny: !!fromAny,
       })),
   }),
   photos: (snap) => ({
